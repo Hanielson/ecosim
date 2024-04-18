@@ -67,6 +67,24 @@ namespace nlohmann
     }
 }
 
+// Function action(entity_t& , int x_pos , int y_pos)
+int action(entity_t& entity , int x_pos , int y_pos){
+    // Instantiation of Random Number Generator Engine
+    std::default_random_engine generator;
+    std::uniform_int_distribution percentage(1 , 100);
+    std::uniform_int_distribution rand_cell(0 , 2);
+
+    // Cell Positions to be Acted Upon
+
+    // Plant Actions
+    if(entity.type == entity_type_t::plant){
+        // Reproduction
+        if(percentage(generator) <= 20){
+            
+        }
+    }
+}
+
 // Grid that contains the entities
 static std::vector<std::vector<entity_t>> entity_grid;
 
