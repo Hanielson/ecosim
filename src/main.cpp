@@ -43,6 +43,11 @@ struct entity_t
     entity_type_t type;
     int32_t energy;
     int32_t age;
+    entity_t(entity_type_t new_type , int32_t new_energy , int32_t new_age){
+        this->type = new_type;
+        this->energy = new_energy;
+        this->age = new_age;
+    };
 };
 
 // Auxiliary code to convert the entity_type_t enum to a string
@@ -83,8 +88,13 @@ int main()
         // Parse the JSON request body
         nlohmann::json request_body = nlohmann::json::parse(req.body);
 
-       // Validate the request body 
-        uint32_t total_entinties = (uint32_t)request_body["plants"] + (uint32_t)request_body["herbivores"] + (uint32_t)request_body["carnivores"];
+        // Extract the quantity of entities per type
+        uint32_t num_plants = (uint32_t)request_body["plants"];
+        uint32_t num_herbivores = (uint32_t)request_body["herbivores"];
+        uint32_t num_carnivores = (uint32_t)request_body["carnivores"];
+        
+        // Validate the request body 
+        uint32_t total_entinties = num_plants + num_herbivores + num_carnivores;
         if (total_entinties > NUM_ROWS * NUM_ROWS) {
         res.code = 400;
         res.body = "Too many entities";
@@ -96,8 +106,51 @@ int main()
         entity_grid.clear();
         entity_grid.assign(NUM_ROWS, std::vector<entity_t>(NUM_ROWS, { empty, 0, 0}));
         
+        // Instantiation of Random Number Generator Engine
+        std::default_random_engine generator;
+        std::uniform_int_distribution distribution(0 , (int)NUM_ROWS);
+
         // Create the entities
-        // <YOUR CODE HERE>
+        // Create Plants
+        for(int amount = 0 ; amount < num_plants ; ++amount){
+            // X Horizontal && Y Vertical
+            int xgrid = 0;
+            int ygrid = 0;
+            do
+            {
+                xgrid = distribution(generator);
+                ygrid = distribution(generator);
+            
+            }while(entity_grid[xgrid][ygrid].type != entity_type_t::empty);
+            entity_grid[xgrid][ygrid] = entity_t(entity_type_t::plant , 0 , 0);
+        }
+        // Create Herbivores
+        for(int amount = 0 ; amount < num_herbivores ; ++amount){
+            // X Horizontal && Y Vertical
+            int xgrid = 0;
+            int ygrid = 0;
+            do
+            {
+                xgrid = distribution(generator);
+                ygrid = distribution(generator);
+            
+            }while(entity_grid[xgrid][ygrid].type != entity_type_t::empty);
+            entity_grid[xgrid][ygrid] = entity_t(entity_type_t::herbivore , 100 , 0);
+        }
+        // Create Carnivores
+        for(int amount = 0 ; amount < num_carnivores ; ++amount){
+            // X Horizontal && Y Vertical
+            int xgrid = 0;
+            int ygrid = 0;
+            do
+            {
+                xgrid = distribution(generator);
+                ygrid = distribution(generator);
+            
+            }while(entity_grid[xgrid][ygrid].type != entity_type_t::empty);
+            entity_grid[xgrid][ygrid] = entity_t(entity_type_t::carnivore , 100 , 0);
+        }
+
 
         // Return the JSON representation of the entity grid
         nlohmann::json json_grid = entity_grid; 
