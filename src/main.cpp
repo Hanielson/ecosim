@@ -10,6 +10,7 @@
 #include <barrier>
 #include <functional>
 #include <cstdio>
+#include <vector>
 
 static const uint32_t NUM_ROWS = 15;
 
@@ -30,14 +31,34 @@ const double CARNIVORE_MOVE_PROBABILITY = 0.5;
 const double CARNIVORE_EAT_PROBABILITY = 1.0;
 
 // Mutexes
-std::mutex general_mut;
+//std::mutex general_mut;
 std::mutex end_task;
 
 // Condition Variable
 std::condition_variable cv;
 
-// Pointer to Barrier
-auto my_barrier = new std::barrier(0);
+// Custom Barrier Definition
+class MyBarrier{
+
+    private :
+        std::condition_variable _cv;
+        uint32_t _current_count;
+        uint32_t _max_count;
+
+    public :
+        MyBarrier(uint32_t max_count) : _current_count(0) , _max_count(max_count) {};
+
+        void wait(std::unique_lock<std::mutex>& ul){
+            ++_current_count;
+            while(_current_count != _max_count){
+                printf("ENTROU NO MY_BARRIER\n");
+                cv.wait(ul);
+            }
+            cv.notify_all();
+            return;
+        };
+
+};
 
 // Type definitions
 enum entity_type_t
@@ -104,19 +125,19 @@ int grow(int x_pos , int y_pos , std::default_random_engine generator){
 
     // CRITICAL SECTION
     // No one can affect the grid while the plant grows somewhere
-    general_mut.lock();
+    std::unique_lock<std::mutex> mut(end_task);
 
     // Updates array with valid values
     // Essa parte aqui tá PODRÍFERA, mas vai ter que servir
-    for(int x_mod = -1 ; x_mod < 1 ; ++x_mod){
-        for(int y_mod = -1 ; y_mod < 1 ; ++y_mod){
+    for(int x_mod = -1 ; x_mod <= 1 ; ++x_mod){
+        for(int y_mod = -1 ; y_mod <= 1 ; ++y_mod){
             // Checks if Position is outside the grid
             if( ( (x_pos + x_mod) < 0 ) || ( (x_pos + x_mod) >= (int)NUM_ROWS ) 
               ||( (y_pos + y_mod) < 0 ) || ( (y_pos + y_mod) >= (int)NUM_ROWS )){
                 continue;
             }
     
-            if(entity_grid[x_pos + x_mod][y_pos + y_mod].type == entity_type_t::empty){
+            if(entity_grid.at(x_pos + x_mod).at(y_pos + y_mod).type == entity_type_t::empty){
                 pos[x_mod + 1][y_mod + 1] = true;
                 valid_count = true;
             };
@@ -125,7 +146,7 @@ int grow(int x_pos , int y_pos , std::default_random_engine generator){
 
     // If there is not a single valid position, the function returns
     if(!valid_count){
-        general_mut.unlock();
+        mut.unlock();
         // END OF CRITICAL SECTION
         return -1;
     }
@@ -136,35 +157,38 @@ int grow(int x_pos , int y_pos , std::default_random_engine generator){
     do{
         x_act = rand_cell(generator);
         y_act = rand_cell(generator);
+        printf("x_act : %d /// y_act : %d" , x_act , y_act);
     }while(pos[x_act + 1][y_act + 1] == false);
 
-    entity_grid[x_pos + x_act][y_pos + y_act] = entity_t(entity_type_t::plant , 0 , 0);
-    fprintf(stdout , "UMA NOVA PLANTA NASCEEEEEU\n");
-
-    general_mut.unlock();
+    entity_grid.at(x_pos + x_act).at(y_pos + y_act) = entity_t(entity_type_t::plant , 0 , 0);
+    mut.unlock();
     // END OF CRITICAL SECTION
 
     return 0;
 }
 
 // Function action(entity_t& , int x_pos , int y_pos)
-int action(entity_t& entity , int x_pos , int y_pos){
+int action(entity_t& entity , int x_pos , int y_pos , MyBarrier& my_barrier){
+
+    printf("THREAD ENTITY %d IS EXECUTING\n" , entity.type);
+
     // Instantiation of Random Number Generator Engine
     std::default_random_engine generator;
     std::uniform_int_distribution percentage(1 , 100);
-
-    // Cell Positions to be Acted Upon
 
     // Plant Actions
     if(entity.type == entity_type_t::plant){
         // Reproduction
         if(percentage(generator) <= 20){
+            printf("Plant is growing\n");
             grow(x_pos , y_pos , generator);
-            fprintf(stdout , "PLANTA SUPREMACIAAA\n");
         }
     }
 
-    my_barrier->arrive_and_wait();
+    // Unique Lock with end_task mutex -> parameter to barrier
+    std::unique_lock<std::mutex> ul(end_task);
+    printf("Thread is terminating execution\n");
+    my_barrier.wait(ul);
 
     return 0;
 }
@@ -191,10 +215,6 @@ int main()
         uint32_t num_plants = (uint32_t)request_body["plants"];
         uint32_t num_herbivores = (uint32_t)request_body["herbivores"];
         uint32_t num_carnivores = (uint32_t)request_body["carnivores"];
-        
-        printf("NUMERO DE PLANTAS : %d\n" , num_plants);
-        printf("NUMERO DE HERBIVORES : %d\n" , num_herbivores);
-        printf("NUMERO DE CARNIVORES : %d\n" , num_carnivores);
         
         // Validate the request body 
         uint32_t total_entinties = num_plants + num_herbivores + num_carnivores;
@@ -224,8 +244,8 @@ int main()
                 xgrid = distribution(generator);
                 ygrid = distribution(generator);
             
-            }while(entity_grid[xgrid][ygrid].type != entity_type_t::empty);
-            entity_grid[xgrid][ygrid] = entity_t(entity_type_t::plant , 0 , 0);
+            }while(entity_grid.at(xgrid).at(ygrid).type != entity_type_t::empty);
+            entity_grid.at(xgrid).at(ygrid) = entity_t(entity_type_t::plant , 0 , 0);
         }
         // Create Herbivores
         for(int amount = 0 ; amount < num_herbivores ; ++amount){
@@ -237,8 +257,8 @@ int main()
                 xgrid = distribution(generator);
                 ygrid = distribution(generator);
             
-            }while(entity_grid[xgrid][ygrid].type != entity_type_t::empty);
-            entity_grid[xgrid][ygrid] = entity_t(entity_type_t::herbivore , 100 , 0);
+            }while(entity_grid.at(xgrid).at(ygrid).type != entity_type_t::empty);
+            entity_grid.at(xgrid).at(ygrid) = entity_t(entity_type_t::herbivore , 100 , 0);
         }
         // Create Carnivores
         for(int amount = 0 ; amount < num_carnivores ; ++amount){
@@ -250,8 +270,8 @@ int main()
                 xgrid = distribution(generator);
                 ygrid = distribution(generator);
             
-            }while(entity_grid[xgrid][ygrid].type != entity_type_t::empty);
-            entity_grid[xgrid][ygrid] = entity_t(entity_type_t::carnivore , 100 , 0);
+            }while(entity_grid.at(xgrid).at(ygrid).type != entity_type_t::empty);
+            entity_grid.at(xgrid).at(ygrid) = entity_t(entity_type_t::carnivore , 100 , 0);
         }
 
 
@@ -271,29 +291,38 @@ int main()
         int count_thread = 0;
         for(int x = 0 ; x < (int)NUM_ROWS ; ++x){
             for(int y = 0 ; y < (int)NUM_ROWS ; ++y){
-                if(entity_grid[x][y].type != entity_type_t::empty){
+                if(entity_grid.at(x).at(y).type != entity_type_t::empty){
                     ++count_thread;
                 }
             }
         }
 
-        // Barrier -> main() waits for every entity to execute
-        free(my_barrier);
-        my_barrier = new std::barrier(count_thread + 1);
+        MyBarrier my_barrier(count_thread + 1);
+
+        // CRITICAL SECTION
+
+        //std::vector<std::thread> thread_list;
+        //thread_list.resize(count_thread);
+
+        // unique_lock for critical section
+        std::unique_lock<std::mutex> ul(end_task);
 
         // Now it executes every thread (QUE PORCOOOOOOOOOOOOOOOOOOOOOOOOO)
         for(int x = 0 ; x < (int)NUM_ROWS ; ++x){
             for(int y = 0 ; y < (int)NUM_ROWS ; ++y){
-                if(entity_grid[x][y].type != entity_type_t::empty){
-                    std::thread th(action , std::ref(entity_grid[x][y]) , x , y) ;
+                if(entity_grid.at(x).at(y).type != entity_type_t::empty){
+                    //thread_list.push_back(std::thread(action , std::ref(entity_grid[x][y]) , x , y , std::ref(my_barrier))) ;
+                    std::thread th(action , std::ref(entity_grid[x][y]) , x , y , std::ref(my_barrier));
                     th.detach();
                 }
             }
         }
 
-        // Wait for 
-        my_barrier->arrive_and_wait();
-        free(my_barrier);
+        // Wait for
+        my_barrier.wait(ul);
+        printf("MAIN FUNCTION IS TERMINATING EXECUTION!!!!!!\n");
+
+        //thread_list.clear();
         
         // Return the JSON representation of the entity grid
         nlohmann::json json_grid = entity_grid; 
