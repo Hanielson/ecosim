@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 project(data-aquisition-system)
 
 # set C++ standard
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_THREAD_PREFER_PTHREAD ON)                                                                                                                                                                                                           
 set(THREADS_PREFER_PTHREAD_FLAG ON)                                                                                                                                                                                                           
