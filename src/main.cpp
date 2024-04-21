@@ -157,7 +157,7 @@ int grow(int x_pos , int y_pos , std::default_random_engine generator){
     do{
         x_act = rand_cell(generator);
         y_act = rand_cell(generator);
-        printf("x_act : %d /// y_act : %d" , x_act , y_act);
+        printf("x_act : %d /// y_act : %d\n" , x_act , y_act);
     }while(pos[x_act + 1][y_act + 1] == false);
 
     entity_grid.at(x_pos + x_act).at(y_pos + y_act) = entity_t(entity_type_t::plant , 0 , 0);
@@ -173,7 +173,8 @@ int action(entity_t& entity , int x_pos , int y_pos , MyBarrier& my_barrier){
     printf("THREAD ENTITY %d IS EXECUTING\n" , entity.type);
 
     // Instantiation of Random Number Generator Engine
-    std::default_random_engine generator;
+    std::random_device rd;
+    std::default_random_engine generator(rd());
     std::uniform_int_distribution percentage(1 , 100);
 
     // Plant Actions
@@ -230,7 +231,8 @@ int main()
         entity_grid.assign(NUM_ROWS, std::vector<entity_t>(NUM_ROWS, { empty, 0, 0}));
         
         // Instantiation of Random Number Generator Engine
-        std::default_random_engine generator;
+        std::random_device rd;
+        std::default_random_engine generator(rd());
         std::uniform_int_distribution distribution(0 , (int)(NUM_ROWS - 1));
 
         // Create the entities
