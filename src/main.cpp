@@ -110,59 +110,69 @@ namespace nlohmann
 // Function that makes the Plant grow into a valid position
 // A valid position is inside the grid and is not currently occupied by some other entity
 // Com certeza tem um jeito mais eficiente de fazer isso mas fazer oq né socorro
-int grow(int x_pos , int y_pos , std::default_random_engine generator){
+int grow(int x_pos , int y_pos){
 
-    // Is there ate least ONE valid position?
-    bool valid_count = false;
+    // Instantiation of Random Number Generator Engine
+    std::random_device rd;
+    std::default_random_engine generator(rd());
+    std::uniform_int_distribution percentage(1 , 100);
 
-    // Array identifying each positions as valid or not
-    // true == valid && false == invalid
-    bool pos[3][3] = {false};
+    if(percentage(generator) <= (int)(PLANT_REPRODUCTION_PROBABILITY * 100)){
 
-    // There's an 3x3 Grid centered on (x_pos , y_pos)
-    // We can index each square of the grid based on (x_pos , y_pos) + (-1/0/1 , -1/0/1)
-    std::uniform_int_distribution rand_cell(-1 , 1);
+        // Is there ate least ONE valid position?
+        bool valid_count = false;
 
-    // CRITICAL SECTION
-    // No one can affect the grid while the plant grows somewhere
-    std::unique_lock<std::mutex> mut(end_task);
+        // Array identifying each positions as valid or not
+        // true == valid && false == invalid
+        bool pos[3][3] = {false};
 
-    // Updates array with valid values
-    // Essa parte aqui tá PODRÍFERA, mas vai ter que servir
-    for(int x_mod = -1 ; x_mod <= 1 ; ++x_mod){
-        for(int y_mod = -1 ; y_mod <= 1 ; ++y_mod){
-            // Checks if Position is outside the grid
-            if( ( (x_pos + x_mod) < 0 ) || ( (x_pos + x_mod) >= (int)NUM_ROWS ) 
-              ||( (y_pos + y_mod) < 0 ) || ( (y_pos + y_mod) >= (int)NUM_ROWS )){
-                continue;
+        // There's an 3x3 Grid centered on (x_pos , y_pos)
+        // We can index each square of the grid based on (x_pos , y_pos) + (-1/0/1 , -1/0/1)
+        std::uniform_int_distribution rand_cell(-1 , 1);
+
+        // CRITICAL SECTION
+        // No one can affect the grid while the plant grows somewhere
+        std::unique_lock<std::mutex> mut(end_task);
+
+        // Updates array with valid values
+        // Essa parte aqui tá PODRÍFERA, mas vai ter que servir
+        for(int x_mod = -1 ; x_mod <= 1 ; ++x_mod){
+            for(int y_mod = -1 ; y_mod <= 1 ; ++y_mod){
+                // Checks if Position is outside the grid
+                if( ( (x_pos + x_mod) < 0 ) || ( (x_pos + x_mod) >= (int)NUM_ROWS ) 
+                ||( (y_pos + y_mod) < 0 ) || ( (y_pos + y_mod) >= (int)NUM_ROWS )){
+                    continue;
+                }
+        
+                if(entity_grid.at(x_pos + x_mod).at(y_pos + y_mod).type == entity_type_t::empty){
+                    pos[x_mod + 1][y_mod + 1] = true;
+                    valid_count = true;
+                };
             }
-    
-            if(entity_grid.at(x_pos + x_mod).at(y_pos + y_mod).type == entity_type_t::empty){
-                pos[x_mod + 1][y_mod + 1] = true;
-                valid_count = true;
-            };
         }
-    }
 
-    // If there is not a single valid position, the function returns
-    if(!valid_count){
+        // If there is not a single valid position, the function returns
+        if(!valid_count){
+            // END OF CRITICAL SECTION
+            return -1;
+        }
+
+        // Position to be acted upon
+        int x_act = 0;
+        int y_act = 0;
+        do{
+            x_act = rand_cell(generator);
+            y_act = rand_cell(generator);
+            printf("x_act : %d /// y_act : %d\n" , x_act , y_act);
+        }while(pos[x_act + 1][y_act + 1] == false);
+
+        entity_grid.at(x_pos + x_act).at(y_pos + y_act) = entity_t(entity_type_t::plant , 0 , 0);
         // END OF CRITICAL SECTION
-        return -1;
+
+        return 0;
     }
 
-    // Position to be acted upon
-    int x_act = 0;
-    int y_act = 0;
-    do{
-        x_act = rand_cell(generator);
-        y_act = rand_cell(generator);
-        printf("x_act : %d /// y_act : %d\n" , x_act , y_act);
-    }while(pos[x_act + 1][y_act + 1] == false);
-
-    entity_grid.at(x_pos + x_act).at(y_pos + y_act) = entity_t(entity_type_t::plant , 0 , 0);
-    // END OF CRITICAL SECTION
-
-    return 0;
+    return -1;
 }
 
 // Function that checks if entity needs to die
@@ -266,17 +276,12 @@ int action(entity_t& entity , int x_pos , int y_pos , MyBarrier& my_barrier){
 
     printf("THREAD ENTITY %d IS EXECUTING\n" , entity.type);
 
-    // Instantiation of Random Number Generator Engine
-    std::random_device rd;
-    std::default_random_engine generator(rd());
-    std::uniform_int_distribution percentage(1 , 100);
-
     // Plant Actions
     if(entity.type == entity_type_t::plant){
         // Reproduction (if not dead)
-        if( die(entity , x_pos , y_pos) && (percentage(generator) <= (int)(PLANT_REPRODUCTION_PROBABILITY * 100)) ){
+        if( die(entity , x_pos , y_pos) ){
             printf("Plant is growing\n");
-            grow(x_pos , y_pos , generator);
+            grow(x_pos , y_pos);
             ++entity.age;
         }
     }
