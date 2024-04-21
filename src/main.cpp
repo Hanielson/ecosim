@@ -303,7 +303,11 @@ entity_t* move(entity_t* entity , entity_type_t starting_type){
                 act_tile = entity_t(entity->type , (entity->energy - 5) , entity->age , (entity->x_pos + x_act) , (entity->y_pos + y_act));
             }
             else if(act_tile.type == entity_type_t::plant){
-                act_tile = entity_t(entity->type , (entity->energy + 25) , entity->age , (entity->x_pos + x_act) , (entity->y_pos + y_act));
+                int32_t new_energy = (entity->energy + 25);
+                if(new_energy > MAXIMUM_ENERGY){
+                    new_energy = MAXIMUM_ENERGY;
+                }
+                act_tile = entity_t(entity->type , new_energy , entity->age , (entity->x_pos + x_act) , (entity->y_pos + y_act));
             }
         }
         else if(entity->type == entity_type_t::carnivore){
@@ -316,7 +320,11 @@ entity_t* move(entity_t* entity , entity_type_t starting_type){
                 act_tile = entity_t(entity->type , (entity->energy - 5) , entity->age , (entity->x_pos + x_act) , (entity->y_pos + y_act));
             }
             else if(act_tile.type == entity_type_t::herbivore){
-                act_tile = entity_t(entity->type , (entity->energy + 15) , entity->age , (entity->x_pos + x_act) , (entity->y_pos + y_act));
+                int32_t new_energy = (entity->energy + 15);
+                if(new_energy > MAXIMUM_ENERGY){
+                    new_energy = MAXIMUM_ENERGY;
+                }
+                act_tile = entity_t(entity->type , new_energy , entity->age , (entity->x_pos + x_act) , (entity->y_pos + y_act));
             }
         }
 
@@ -407,12 +415,20 @@ int eat(entity_t* entity , entity_type_t starting_type){
 
         // Herbivore and Carnivore actions
         if(entity->type == entity_type_t::herbivore){
+            int32_t new_energy = (entity->energy + 30);
+            if(new_energy > MAXIMUM_ENERGY){
+                new_energy = MAXIMUM_ENERGY;
+            }
             entity_grid.at(entity->x_pos + x_act).at(entity->y_pos + y_act) = entity_t(entity_type_t::empty , 0 , 0 , (entity->x_pos + x_act) , (entity->y_pos + y_act));
-            entity_grid.at(entity->x_pos).at(entity->y_pos) = entity_t(entity->type , (entity->energy + 30) , entity->age , entity->x_pos , entity->y_pos);
+            entity_grid.at(entity->x_pos).at(entity->y_pos) = entity_t(entity->type , new_energy , entity->age , entity->x_pos , entity->y_pos);
         }
         else if(entity->type == entity_type_t::carnivore){
+            int32_t new_energy = (entity->energy + 20);
+            if(new_energy > MAXIMUM_ENERGY){
+                new_energy = MAXIMUM_ENERGY;
+            }
             entity_grid.at(entity->x_pos + x_act).at(entity->y_pos + y_act) = entity_t(entity_type_t::empty , 0 , 0 , (entity->x_pos + x_act) , (entity->y_pos + y_act));
-            entity_grid.at(entity->x_pos).at(entity->y_pos) = entity_t(entity->type , (entity->energy + 20) , entity->age , entity->x_pos , entity->y_pos);
+            entity_grid.at(entity->x_pos).at(entity->y_pos) = entity_t(entity->type , new_energy , entity->age , entity->x_pos , entity->y_pos);
         }
         // END OF CRITICAL SECTION
         return 1;
