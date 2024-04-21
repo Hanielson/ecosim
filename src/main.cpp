@@ -423,6 +423,89 @@ int eat(entity_t* entity , entity_type_t starting_type){
 
 }
 
+// Function that makes a copy of an entity and places it into an empty adjacent cell (if probability is met)
+// If entity is copied -> returns 1
+// If entity dies before being capable of redproducing -> returns -1
+// If entity wasn't able to reproduce -> returns 0
+int reproduce(entity_t* entity , entity_type_t starting_type){
+    // Instantiation of Random Number Generator Engine
+    std::random_device rd;
+    std::default_random_engine generator(rd());
+    std::uniform_int_distribution percentage(1 , 1000);
+
+    // CRITICAL SECTION
+    // No one can affect the grid while the entities are trying to move somewhere
+    std::unique_lock<std::mutex> mut(end_task);
+
+    // Entity was killed while waiting to start to reproduce (yeah, life is truly unfair), so it returns -1
+    if(entity->type != starting_type){
+        return -1;
+    }
+
+    // Entity Reproduction Measures
+    if( ( (entity->type == entity_type_t::herbivore) && (percentage(generator) <= (int)(HERBIVORE_REPRODUCTION_PROBABILITY * 1000)) && (entity->energy >= THRESHOLD_ENERGY_FOR_REPRODUCTION))
+      ||( (entity->type == entity_type_t::carnivore) && (percentage(generator) <= (int)(CARNIVORE_REPRODUCTION_PROBABILITY * 1000)) && (entity->energy >= THRESHOLD_ENERGY_FOR_REPRODUCTION)) ){
+        
+        // Is there ate least ONE valid position?
+        bool valid_count = false;
+
+        // Array identifying each positions as valid or not
+        // true == valid && false == invalid
+        bool pos[3][3] = {false};
+
+        // There's an 3x3 Grid centered on (x_pos , y_pos)
+        // We can index each square of the grid based on (x_pos , y_pos) + (-1/0/1 , -1/0/1)
+        std::uniform_int_distribution rand_cell(-1 , 1);
+
+        // Updates array with valid values
+        // Essa parte aqui tá PODRÍFERA, mas vai ter que servir
+        for(int x_mod = -1 ; x_mod <= 1 ; ++x_mod){
+            for(int y_mod = -1 ; y_mod <= 1 ; ++y_mod){
+                // Checks if Position is outside the grid
+                if( ( (entity->x_pos + x_mod) < 0 ) || ( (entity->x_pos + x_mod) >= (int)NUM_ROWS ) 
+                  ||( (entity->y_pos + y_mod) < 0 ) || ( (entity->y_pos + y_mod) >= (int)NUM_ROWS )){
+                    continue;
+                }
+
+                // Checks if position is empty
+                if( entity_grid.at(entity->x_pos + x_mod).at(entity->y_pos + y_mod).type == entity_type_t::empty ){
+                    pos[x_mod + 1][y_mod + 1] = true;
+                    valid_count = true;
+                };
+            }
+        }
+
+        // If there is not a single valid position, the function returns
+        if(!valid_count){
+            // END OF CRITICAL SECTION
+            // Reproduction hasn't occured
+            return 0;
+        }
+
+        // Position to be acted upon
+        int x_act = 0;
+        int y_act = 0;
+        do{
+            x_act = rand_cell(generator);
+            y_act = rand_cell(generator);
+            printf("x_act : %d /// y_act : %d\n" , x_act , y_act);
+        }while(pos[x_act + 1][y_act + 1] == false);
+
+        // Herbivore Reproduction & Carnivore Reproduction
+        entity_grid.at(entity->x_pos + x_act).at(entity->y_pos + y_act) = entity_t(entity->type , 100 , 0 , (entity->x_pos + x_act) , (entity->y_pos + y_act));
+        entity_grid.at(entity->x_pos).at(entity->y_pos) = entity_t(entity->type , (entity->energy - 10) , entity->age , entity->x_pos , entity->y_pos);
+
+        // END OF CRITICAL SECTION
+        // Reproduction has occured
+        return 1;
+
+    }
+
+    // Reproduction didn't happen
+    // END OF CRITICAL SECTION
+    return 0;
+}
+
 // Function action(entity_t& , int x_pos , int y_pos)
 // OBS : starting_type is used as a variable to identify if an entity was killed while trying to do something
 // If entity->type != starting_type (type of entity when the thread was created) -> entity was killed and another thread now takes care of
@@ -451,11 +534,10 @@ int action(entity_t* entity , MyBarrier& my_barrier , const entity_type_t starti
             entity = move(entity , starting_type);
 
             // If entity was killed by another while trying to move -> returns nullptr and thread goes straight to barrier
-            if(entity != nullptr){
-                // If entity was killed before it could eat anything -> returns -1 and thread goes straight into the barrier
-                if(eat(entity , starting_type) != -1){
-                    ++(entity->age);
-                }
+            // If entity was killed before it could eat anything -> returns -1 and thread goes straight into the barrier
+            // If entity was killed before it could reproduce -> reuturns -1 and thread goes straight into the barrier
+            if( (entity != nullptr) && (eat(entity , starting_type) != -1) && (reproduce(entity , starting_type) != -1)){
+                ++(entity->age);
             }
         }
     }
