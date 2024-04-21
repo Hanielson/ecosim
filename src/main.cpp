@@ -182,14 +182,14 @@ int grow(int x_pos , int y_pos){
 // Function that checks if entity needs to die
 // If it does, the entity is removed from the grid and the function returns 0
 // Otherwise, the function does nothing and returns 1
-int die(entity_t& entity){
+int die(entity_t* entity){
     // Checks Entity type and apply death rules according to each one
-    if( ( (entity.type == entity_type_t::plant    ) && (entity.age >= PLANT_MAXIMUM_AGE    ) ) 
-      ||( (entity.type == entity_type_t::herbivore) && (entity.age >= HERBIVORE_MAXIMUM_AGE) )
-      ||( (entity.type == entity_type_t::carnivore) && (entity.age >= CARNIVORE_MAXIMUM_AGE) ) ){
+    if( ( (entity->type == entity_type_t::plant    ) && (entity->age >= PLANT_MAXIMUM_AGE    ) ) 
+      ||( (entity->type == entity_type_t::herbivore) && (entity->age >= HERBIVORE_MAXIMUM_AGE) )
+      ||( (entity->type == entity_type_t::carnivore) && (entity->age >= CARNIVORE_MAXIMUM_AGE) ) ){
         // CRITICAL SECTION
         std::unique_lock<std::mutex> ul(end_task);
-        entity_grid.at(entity.x_pos).at(entity.y_pos) = entity_t(entity_type_t::empty , 0 , 0 , entity.x_pos , entity.y_pos);
+        entity_grid.at(entity->x_pos).at(entity->y_pos) = entity_t(entity_type_t::empty , 0 , 0 , entity->x_pos , entity->y_pos);
         // END OF CRITICAL SECTION
         return 0;
     }
@@ -201,7 +201,7 @@ int die(entity_t& entity){
 // Function that updates the position of the Herbivores and Carnivores, according to each own rules
 // Returns pointer to entity in new position
 // OBS : NEED TO IMPLEMENT CARNIVORE MOVEMENT
-entity_t* move(entity_t& entity){
+entity_t* move(entity_t* entity){
 
     // Instantiation of Random Number Generator Engine
     std::random_device rd;
@@ -209,8 +209,8 @@ entity_t* move(entity_t& entity){
     std::uniform_int_distribution percentage(1 , 100);
 
     // Entity Movements
-    if( ( (entity.type == entity_type_t::herbivore) && (percentage(generator) <= (int)(HERBIVORE_MOVE_PROBABILITY * 100)) && (entity.energy >= 5))
-      ||( (entity.type == entity_type_t::carnivore) && (percentage(generator) <= (int)(CARNIVORE_MOVE_PROBABILITY * 100)) && (entity.energy >= 5)) ){
+    if( ( (entity->type == entity_type_t::herbivore) && (percentage(generator) <= (int)(HERBIVORE_MOVE_PROBABILITY * 100)) && (entity->energy >= 5))
+      ||( (entity->type == entity_type_t::carnivore) && (percentage(generator) <= (int)(CARNIVORE_MOVE_PROBABILITY * 100)) && (entity->energy >= 5)) ){
         
         // Is there ate least ONE valid position?
         bool valid_count = false;
@@ -232,14 +232,14 @@ entity_t* move(entity_t& entity){
         for(int x_mod = -1 ; x_mod <= 1 ; ++x_mod){
             for(int y_mod = -1 ; y_mod <= 1 ; ++y_mod){
                 // Checks if Position is outside the grid
-                if( ( (entity.x_pos + x_mod) < 0 ) || ( (entity.x_pos + x_mod) >= (int)NUM_ROWS ) 
-                  ||( (entity.y_pos + y_mod) < 0 ) || ( (entity.y_pos + y_mod) >= (int)NUM_ROWS )){
+                if( ( (entity->x_pos + x_mod) < 0 ) || ( (entity->x_pos + x_mod) >= (int)NUM_ROWS ) 
+                  ||( (entity->y_pos + y_mod) < 0 ) || ( (entity->y_pos + y_mod) >= (int)NUM_ROWS )){
                     continue;
                 }
 
-                entity_type_t adjacent_type = entity_grid.at(entity.x_pos + x_mod).at(entity.y_pos + y_mod).type;
-                if( ( (entity.type == entity_type_t::herbivore) && (adjacent_type == entity_type_t::empty) ) 
-                  ||( (entity.type == entity_type_t::carnivore) && (adjacent_type != entity_type_t::plant) ) ){
+                entity_type_t adjacent_type = entity_grid.at(entity->x_pos + x_mod).at(entity->y_pos + y_mod).type;
+                if( ( (entity->type == entity_type_t::herbivore) && (adjacent_type == entity_type_t::empty) ) 
+                  ||( (entity->type == entity_type_t::carnivore) && (adjacent_type != entity_type_t::plant) ) ){
                     pos[x_mod + 1][y_mod + 1] = true;
                     valid_count = true;
                 };
@@ -249,7 +249,8 @@ entity_t* move(entity_t& entity){
         // If there is not a single valid position, the function returns
         if(!valid_count){
             // END OF CRITICAL SECTION
-            return nullptr;
+            // POSITION HASN'T CHANGED
+            return &entity_grid.at(entity->x_pos).at(entity->y_pos);
         }
 
         // Position to be acted upon
@@ -262,17 +263,18 @@ entity_t* move(entity_t& entity){
         }while(pos[x_act + 1][y_act + 1] == false);
 
         // Herbivore Movement
-        if(entity.type == entity_type_t::herbivore){
-            entity_grid.at(entity.x_pos + x_act).at(entity.y_pos + y_act) = entity_t(entity.type , (entity.energy - 5) , entity.age , (entity.x_pos + x_act) , (entity.y_pos + y_act));
-            entity_grid.at(entity.x_pos).at(entity.y_pos) = entity_t(entity_type_t::empty , 0 , 0 , entity.x_pos , entity.y_pos);
+        if(entity->type == entity_type_t::herbivore){
+            entity_grid.at(entity->x_pos + x_act).at(entity->y_pos + y_act) = entity_t(entity->type , (entity->energy - 5) , entity->age , (entity->x_pos + x_act) , (entity->y_pos + y_act));
+            entity_grid.at(entity->x_pos).at(entity->y_pos) = entity_t(entity_type_t::empty , 0 , 0 , entity->x_pos , entity->y_pos);
         }
         // END OF CRITICAL SECTION
 
-        return &entity_grid.at(entity.x_pos + x_act).at(entity.y_pos + y_act);
+        return &entity_grid.at(entity->x_pos + x_act).at(entity->y_pos + y_act);
 
     }
 
-    return nullptr;
+    // POSITION HASN'T CHANGED
+    return &entity_grid.at(entity->x_pos).at(entity->y_pos);
 
 }
 
@@ -353,22 +355,22 @@ int eat(entity_t* entity){
 }
 
 // Function action(entity_t& , int x_pos , int y_pos)
-int action(entity_t& entity , MyBarrier& my_barrier){
+int action(entity_t* entity , MyBarrier& my_barrier){
 
-    printf("THREAD ENTITY %d IS EXECUTING\n" , entity.type);
+    printf("THREAD ENTITY %d IS EXECUTING\n" , entity->type);
 
     // Plant Actions
-    if(entity.type == entity_type_t::plant){
+    if(entity->type == entity_type_t::plant){
         // Reproduction (if not dead)
         if( die(entity) ){
             printf("Plant is growing\n");
-            grow(entity.x_pos , entity.y_pos);
-            ++entity.age;
+            grow(entity->x_pos , entity->y_pos);
+            ++entity->age;
         }
     }
 
     // Herbivore Actions
-    if(entity.type == entity_type_t::herbivore){
+    if(entity->type == entity_type_t::herbivore){
         if(die(entity)){
             // Entity moves to a new position
             // The address of the entity in the new position is returned
@@ -377,12 +379,7 @@ int action(entity_t& entity , MyBarrier& my_barrier){
             // If no movement was made and we need to operate through the Entity reference
             // Otherwise, we need to operate through the returned address
             // Algoritmo bem podre, mas vai ter que servir MESMO
-            if(new_pos == nullptr){
-                ++entity.age;
-            }
-            else{
-                ++(new_pos->age);
-            }
+            ++(new_pos->age);
         }
     }
 
@@ -514,13 +511,14 @@ int main()
             for(int y = 0 ; y < (int)NUM_ROWS ; ++y){
                 if(entity_grid.at(x).at(y).type != entity_type_t::empty){
                     //thread_list.push_back(std::thread(action , std::ref(entity_grid[x][y]) , x , y , std::ref(my_barrier))) ;
-                    std::thread th(action , std::ref(entity_grid[x][y]) , std::ref(my_barrier));
+                    std::thread th(action , &entity_grid[x][y] , std::ref(my_barrier));
                     th.detach();
                 }
             }
         }
 
-        // Wait for
+        // Wait for all threads to begin execution
+        // NOTE : when a new entity is born through reproduction, it can only act in the next iteration
         my_barrier.wait(ul);
         printf("MAIN FUNCTION IS TERMINATING EXECUTION!!!!!!\n");
 
