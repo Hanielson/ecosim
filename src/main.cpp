@@ -146,7 +146,6 @@ int grow(int x_pos , int y_pos , std::default_random_engine generator){
 
     // If there is not a single valid position, the function returns
     if(!valid_count){
-        mut.unlock();
         // END OF CRITICAL SECTION
         return -1;
     }
@@ -161,10 +160,27 @@ int grow(int x_pos , int y_pos , std::default_random_engine generator){
     }while(pos[x_act + 1][y_act + 1] == false);
 
     entity_grid.at(x_pos + x_act).at(y_pos + y_act) = entity_t(entity_type_t::plant , 0 , 0);
-    mut.unlock();
     // END OF CRITICAL SECTION
 
     return 0;
+}
+
+// Function that checks if entity needs to die
+// If it does, the entity is removed from the grid and the function returns 0
+// Otherwise, the function does nothing and returns 1
+int die(entity_t& entity , int x_pos , int y_pos){
+    // Checks Entity type and apply death rules according to each one
+    if( ( (entity.type == entity_type_t::plant    ) && (entity.age > PLANT_MAXIMUM_AGE    ) ) 
+      ||( (entity.type == entity_type_t::herbivore) && (entity.age > HERBIVORE_MAXIMUM_AGE) )
+      ||( (entity.type == entity_type_t::carnivore) && (entity.age > CARNIVORE_MAXIMUM_AGE) ) ){
+        // CRITICAL SECTION
+        std::unique_lock<std::mutex> ul(end_task);
+        entity_grid.at(x_pos).at(y_pos) = entity_t(entity_type_t::empty , 0 , 0);
+        return 0;
+    }
+    else{
+        return 1;
+    }
 }
 
 // Function action(entity_t& , int x_pos , int y_pos)
@@ -179,10 +195,11 @@ int action(entity_t& entity , int x_pos , int y_pos , MyBarrier& my_barrier){
 
     // Plant Actions
     if(entity.type == entity_type_t::plant){
-        // Reproduction
-        if(percentage(generator) <= 20){
+        // Reproduction (if not dead)
+        if( die(entity , x_pos , y_pos) && (percentage(generator) <= 20) ){
             printf("Plant is growing\n");
             grow(x_pos , y_pos , generator);
+            ++entity.age;
         }
     }
 
