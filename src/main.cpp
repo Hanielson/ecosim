@@ -80,10 +80,14 @@ struct entity_t
     entity_type_t type;
     int32_t energy;
     int32_t age;
-    entity_t(entity_type_t new_type , int32_t new_energy , int32_t new_age){
+    int x_pos;
+    int y_pos;
+    entity_t(entity_type_t new_type , int32_t new_energy , int32_t new_age , int x_pos , int y_pos){
         this->type = new_type;
         this->energy = new_energy;
         this->age = new_age;
+        this->x_pos = x_pos;
+        this->y_pos = y_pos;
     };
 };
 
@@ -166,7 +170,7 @@ int grow(int x_pos , int y_pos){
             printf("x_act : %d /// y_act : %d\n" , x_act , y_act);
         }while(pos[x_act + 1][y_act + 1] == false);
 
-        entity_grid.at(x_pos + x_act).at(y_pos + y_act) = entity_t(entity_type_t::plant , 0 , 0);
+        entity_grid.at(x_pos + x_act).at(y_pos + y_act) = entity_t(entity_type_t::plant , 0 , 0 , (x_pos + x_act) , (y_pos + y_act));
         // END OF CRITICAL SECTION
 
         return 0;
@@ -185,7 +189,7 @@ int die(entity_t& entity , int x_pos , int y_pos){
       ||( (entity.type == entity_type_t::carnivore) && (entity.age >= CARNIVORE_MAXIMUM_AGE) ) ){
         // CRITICAL SECTION
         std::unique_lock<std::mutex> ul(end_task);
-        entity_grid.at(x_pos).at(y_pos) = entity_t(entity_type_t::empty , 0 , 0);
+        entity_grid.at(x_pos).at(y_pos) = entity_t(entity_type_t::empty , 0 , 0 , x_pos , y_pos);
         // END OF CRITICAL SECTION
         return 0;
     }
@@ -196,6 +200,7 @@ int die(entity_t& entity , int x_pos , int y_pos){
 
 // Function that updates the position of the Herbivores and Carnivores, according to each own rules
 // Returns pointer to entity in new position
+// OBS : NEED TO IMPLEMENT CARNIVORE MOVEMENT
 entity_t* move(entity_t& entity , int x_pos , int y_pos){
 
     // Instantiation of Random Number Generator Engine
@@ -219,7 +224,7 @@ entity_t* move(entity_t& entity , int x_pos , int y_pos){
         std::uniform_int_distribution rand_cell(-1 , 1);
 
         // CRITICAL SECTION
-        // No one can affect the grid while the plant grows somewhere
+        // No one can affect the grid while the entities are trying to move somewhere
         std::unique_lock<std::mutex> mut(end_task);
 
         // Updates array with valid values
@@ -258,8 +263,8 @@ entity_t* move(entity_t& entity , int x_pos , int y_pos){
 
         // Herbivore Movement
         if(entity.type == entity_type_t::herbivore){
-            entity_grid.at(x_pos + x_act).at(y_pos + y_act) = entity_t(entity.type , (entity.energy - 5) , entity.age);
-            entity_grid.at(x_pos).at(y_pos) = entity_t(entity_type_t::empty , 0 , 0);
+            entity_grid.at(x_pos + x_act).at(y_pos + y_act) = entity_t(entity.type , (entity.energy - 5) , entity.age , (x_pos + x_act) , (y_pos + y_act));
+            entity_grid.at(x_pos).at(y_pos) = entity_t(entity_type_t::empty , 0 , 0 , x_pos , y_pos);
         }
         // END OF CRITICAL SECTION
 
@@ -271,27 +276,103 @@ entity_t* move(entity_t& entity , int x_pos , int y_pos){
 
 }
 
+// Function that implements the eating action for the Herbivores and Carnivores, according to each own rules
+// Had to change entity reference to entity pointer -> due to the fact that the function needs to work with recently-moved entities
+int eat(entity_t* entity , int x_pos , int y_pos){
+
+    // Instantiation of Random Number Generator Engine
+    std::random_device rd;
+    std::default_random_engine generator(rd());
+    std::uniform_int_distribution percentage(1 , 100);
+
+    // Checks Entity Type for Eating Rules Applications
+    if( (entity->type != entity_type_t::herbivore) && (entity->type != entity_type_t::carnivore) ){
+        // ARE YOU NOT A HERBIVORE NOR A CARNIVORE?? WTF WHY ARE YOU HERE??? GTFOOOO
+        return -1;
+    }
+    else{
+        
+        // COPIEI A SEÇÃO DO CÓDIGO DENOVO NAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAO
+        // Mas vai ter que ser por pressa mesmo... trágico -> pelo menos funciona né kkkk
+        // Is there ate least ONE valid position?
+        bool valid_count = false;
+
+        // Array identifying each positions as valid or not
+        // true == valid && false == invalid
+        bool pos[3][3] = {false};
+
+        // There's an 3x3 Grid centered on (x_pos , y_pos)
+        // We can index each square of the grid based on (x_pos , y_pos) + (-1/0/1 , -1/0/1)
+        std::uniform_int_distribution rand_cell(-1 , 1);
+
+        // CRITICAL SECTION
+        // No one can affect the grid while entities are trying to eat
+        std::unique_lock<std::mutex> mut(end_task);
+
+        // Updates array with valid values
+        // Essa parte aqui tá PODRÍFERA, mas vai ter que servir
+        for(int x_mod = -1 ; x_mod <= 1 ; ++x_mod){
+            for(int y_mod = -1 ; y_mod <= 1 ; ++y_mod){
+                // Checks if Position is outside the grid
+                if( ( (x_pos + x_mod) < 0 ) || ( (x_pos + x_mod) >= (int)NUM_ROWS ) 
+                  ||( (y_pos + y_mod) < 0 ) || ( (y_pos + y_mod) >= (int)NUM_ROWS )){
+                    continue;
+                }
+
+                entity_type_t adjacent_type = entity_grid.at(x_pos + x_mod).at(y_pos + y_mod).type;
+                if( ( (entity->type == entity_type_t::herbivore) && (adjacent_type == entity_type_t::plant) ) 
+                  ||( (entity->type == entity_type_t::carnivore) && (adjacent_type == entity_type_t::herbivore) ) ){
+                    pos[x_mod + 1][y_mod + 1] = true;
+                    valid_count = true;
+                };
+            }
+        }
+
+        // If there is not a single valid position, the function returns
+        if(!valid_count){
+            // END OF CRITICAL SECTION
+            return -1;
+        }
+
+        // Position to be acted upon
+        int x_act = 0;
+        int y_act = 0;
+        do{
+            x_act = rand_cell(generator);
+            y_act = rand_cell(generator);
+            printf("x_act : %d /// y_act : %d\n" , x_act , y_act);
+        }while(pos[x_act + 1][y_act + 1] == false);
+
+        // ACTIONS
+        // END OF CRITICAL SECTION
+
+        return 0;
+
+    }
+
+}
+
 // Function action(entity_t& , int x_pos , int y_pos)
-int action(entity_t& entity , int x_pos , int y_pos , MyBarrier& my_barrier){
+int action(entity_t& entity , MyBarrier& my_barrier){
 
     printf("THREAD ENTITY %d IS EXECUTING\n" , entity.type);
 
     // Plant Actions
     if(entity.type == entity_type_t::plant){
         // Reproduction (if not dead)
-        if( die(entity , x_pos , y_pos) ){
+        if( die(entity , entity.x_pos , entity.y_pos) ){
             printf("Plant is growing\n");
-            grow(x_pos , y_pos);
+            grow(entity.x_pos , entity.y_pos);
             ++entity.age;
         }
     }
 
     // Herbivore Actions
     if(entity.type == entity_type_t::herbivore){
-        if(die(entity , x_pos , y_pos)){
+        if(die(entity , entity.x_pos , entity.y_pos)){
             // Entity moves to a new position
             // The address of the entity in the new position is returned
-            entity_t* new_pos = move(entity , x_pos , y_pos);
+            entity_t* new_pos = move(entity , entity.x_pos , entity.y_pos);
 
             // If no movement was made and we need to operate through the Entity reference
             // Otherwise, we need to operate through the returned address
@@ -347,7 +428,7 @@ int main()
 
         // Clear the entity grid
         entity_grid.clear();
-        entity_grid.assign(NUM_ROWS, std::vector<entity_t>(NUM_ROWS, { empty, 0, 0}));
+        entity_grid.assign(NUM_ROWS, std::vector<entity_t>(NUM_ROWS, { empty, 0, 0 , 0 , 0}));
         
         // Instantiation of Random Number Generator Engine
         std::random_device rd;
@@ -366,7 +447,7 @@ int main()
                 ygrid = distribution(generator);
             
             }while(entity_grid.at(xgrid).at(ygrid).type != entity_type_t::empty);
-            entity_grid.at(xgrid).at(ygrid) = entity_t(entity_type_t::plant , 0 , 0);
+            entity_grid.at(xgrid).at(ygrid) = entity_t(entity_type_t::plant , 0 , 0 , xgrid , ygrid);
         }
         // Create Herbivores
         for(int amount = 0 ; amount < num_herbivores ; ++amount){
@@ -379,7 +460,7 @@ int main()
                 ygrid = distribution(generator);
             
             }while(entity_grid.at(xgrid).at(ygrid).type != entity_type_t::empty);
-            entity_grid.at(xgrid).at(ygrid) = entity_t(entity_type_t::herbivore , 100 , 0);
+            entity_grid.at(xgrid).at(ygrid) = entity_t(entity_type_t::herbivore , 100 , 0 , xgrid , ygrid);
         }
         // Create Carnivores
         for(int amount = 0 ; amount < num_carnivores ; ++amount){
@@ -392,7 +473,7 @@ int main()
                 ygrid = distribution(generator);
             
             }while(entity_grid.at(xgrid).at(ygrid).type != entity_type_t::empty);
-            entity_grid.at(xgrid).at(ygrid) = entity_t(entity_type_t::carnivore , 100 , 0);
+            entity_grid.at(xgrid).at(ygrid) = entity_t(entity_type_t::carnivore , 100 , 0 , xgrid , ygrid);
         }
 
 
@@ -433,7 +514,7 @@ int main()
             for(int y = 0 ; y < (int)NUM_ROWS ; ++y){
                 if(entity_grid.at(x).at(y).type != entity_type_t::empty){
                     //thread_list.push_back(std::thread(action , std::ref(entity_grid[x][y]) , x , y , std::ref(my_barrier))) ;
-                    std::thread th(action , std::ref(entity_grid[x][y]) , x , y , std::ref(my_barrier));
+                    std::thread th(action , std::ref(entity_grid[x][y]) , std::ref(my_barrier));
                     th.detach();
                 }
             }
