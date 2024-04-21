@@ -113,13 +113,22 @@ namespace nlohmann
 
 // Function that makes the Plant grow into a valid position
 // A valid position is inside the grid and is not currently occupied by some other entity
-// Com certeza tem um jeito mais eficiente de fazer isso mas fazer oq né socorro
-int grow(int x_pos , int y_pos){
+// Returns 0 if couldn't grow , 1 if it grew and -1 if it was killed before it could grow
+int grow(entity_t* entity , int x_pos , int y_pos){
 
     // Instantiation of Random Number Generator Engine
     std::random_device rd;
     std::default_random_engine generator(rd());
     std::uniform_int_distribution percentage(1 , 100);
+
+    // CRITICAL SECTION
+    // No one can affect the grid while the plant grows somewhere
+    std::unique_lock<std::mutex> mut(end_task);
+
+    // Plant was killed before it could grow -> thread must now go straight into barrier
+    if(entity->type != entity_type_t::plant){
+        return -1;
+    }
 
     if(percentage(generator) <= (int)(PLANT_REPRODUCTION_PROBABILITY * 100)){
 
@@ -136,7 +145,7 @@ int grow(int x_pos , int y_pos){
 
         // CRITICAL SECTION
         // No one can affect the grid while the plant grows somewhere
-        std::unique_lock<std::mutex> mut(end_task);
+        //std::unique_lock<std::mutex> mut(end_task);
 
         // Updates array with valid values
         // Essa parte aqui tá PODRÍFERA, mas vai ter que servir
@@ -158,7 +167,7 @@ int grow(int x_pos , int y_pos){
         // If there is not a single valid position, the function returns
         if(!valid_count){
             // END OF CRITICAL SECTION
-            return -1;
+            return 0;
         }
 
         // Position to be acted upon
@@ -172,28 +181,39 @@ int grow(int x_pos , int y_pos){
 
         entity_grid.at(x_pos + x_act).at(y_pos + y_act) = entity_t(entity_type_t::plant , 0 , 0 , (x_pos + x_act) , (y_pos + y_act));
         // END OF CRITICAL SECTION
-
-        return 0;
+        return 1;
     }
 
-    return -1;
+    // END OF CRITICAL SECTION
+    return 0;
+
 }
 
 // Function that checks if entity needs to die
 // If it does, the entity is removed from the grid and the function returns 0
 // Otherwise, the function does nothing and returns 1
-int die(entity_t* entity){
+// If entity was killed by another, while die() was waiting to run, returns 0 as well
+int die(entity_t* entity , entity_type_t starting_type){
     // Checks Entity type and apply death rules according to each one
+
+    // CRITICAL SECTION
+    std::unique_lock<std::mutex> ul(end_task);
+
+    if(entity->type != starting_type){
+        // Entity was killed while trying to die (ironic, isn't it?), therefore, this thread needs to go straight to the barrier
+        return 0;
+    }
+
     if( ( (entity->type == entity_type_t::plant    ) && (entity->age >= PLANT_MAXIMUM_AGE    ) ) 
       ||( (entity->type == entity_type_t::herbivore) && (entity->age >= HERBIVORE_MAXIMUM_AGE) )
       ||( (entity->type == entity_type_t::carnivore) && (entity->age >= CARNIVORE_MAXIMUM_AGE) ) ){
-        // CRITICAL SECTION
-        std::unique_lock<std::mutex> ul(end_task);
+
         entity_grid.at(entity->x_pos).at(entity->y_pos) = entity_t(entity_type_t::empty , 0 , 0 , entity->x_pos , entity->y_pos);
         // END OF CRITICAL SECTION
         return 0;
     }
     else{
+        // END OF CRITICAL SECTION
         return 1;
     }
 }
@@ -201,12 +221,21 @@ int die(entity_t* entity){
 // Function that updates the position of the Herbivores and Carnivores, according to each own rules
 // Returns pointer to entity in new position
 // OBS : NEED TO IMPLEMENT CARNIVORE MOVEMENT
-entity_t* move(entity_t* entity){
+entity_t* move(entity_t* entity , entity_type_t starting_type){
 
     // Instantiation of Random Number Generator Engine
     std::random_device rd;
     std::default_random_engine generator(rd());
     std::uniform_int_distribution percentage(1 , 100);
+
+    // CRITICAL SECTION
+    // No one can affect the grid while the entities are trying to move somewhere
+    std::unique_lock<std::mutex> mut(end_task);
+
+    // Entity was killed while waiting to start to move (yeah, life is truly unfair), so it returns a nullptr
+    if(entity->type != starting_type){
+        return nullptr;
+    }
 
     // Entity Movements
     if( ( (entity->type == entity_type_t::herbivore) && (percentage(generator) <= (int)(HERBIVORE_MOVE_PROBABILITY * 100)) && (entity->energy >= 5))
@@ -223,10 +252,6 @@ entity_t* move(entity_t* entity){
         // We can index each square of the grid based on (x_pos , y_pos) + (-1/0/1 , -1/0/1)
         std::uniform_int_distribution rand_cell(-1 , 1);
 
-        // CRITICAL SECTION
-        // No one can affect the grid while the entities are trying to move somewhere
-        std::unique_lock<std::mutex> mut(end_task);
-
         // Updates array with valid values
         // Essa parte aqui tá PODRÍFERA, mas vai ter que servir
         for(int x_mod = -1 ; x_mod <= 1 ; ++x_mod){
@@ -238,8 +263,8 @@ entity_t* move(entity_t* entity){
                 }
 
                 entity_type_t adjacent_type = entity_grid.at(entity->x_pos + x_mod).at(entity->y_pos + y_mod).type;
-                if( ( (entity->type == entity_type_t::herbivore) && (adjacent_type == entity_type_t::empty) ) 
-                  ||( (entity->type == entity_type_t::carnivore) && (adjacent_type != entity_type_t::plant) ) ){
+                if( ( (entity->type == entity_type_t::herbivore) && (adjacent_type != entity_type_t::carnivore) && (adjacent_type != entity_type_t::herbivore)) 
+                  ||( (entity->type == entity_type_t::carnivore) && (adjacent_type != entity_type_t::carnivore) ) ){
                     pos[x_mod + 1][y_mod + 1] = true;
                     valid_count = true;
                 };
@@ -262,18 +287,43 @@ entity_t* move(entity_t* entity){
             printf("x_act : %d /// y_act : %d\n" , x_act , y_act);
         }while(pos[x_act + 1][y_act + 1] == false);
 
-        // Herbivore Movement
+        // Herbivore Movement & Carnivore Movement
         if(entity->type == entity_type_t::herbivore){
-            entity_grid.at(entity->x_pos + x_act).at(entity->y_pos + y_act) = entity_t(entity->type , (entity->energy - 5) , entity->age , (entity->x_pos + x_act) , (entity->y_pos + y_act));
-            entity_grid.at(entity->x_pos).at(entity->y_pos) = entity_t(entity_type_t::empty , 0 , 0 , entity->x_pos , entity->y_pos);
+            entity_t& act_tile = entity_grid.at(entity->x_pos + x_act).at(entity->y_pos + y_act);
+            // Tile to act upon is empty or is it occupied by a plant?
+            // If it is occupied by a plant -> herbivore makes a move, spends 5 energy and eats the plant, restoring 30 energy points
+            // If it is empty -> herbivore makes a move and spends 5 points of energy
+            if(act_tile.type == entity_type_t::empty){
+                act_tile = entity_t(entity->type , (entity->energy - 5) , entity->age , (entity->x_pos + x_act) , (entity->y_pos + y_act));
+            }
+            else if(act_tile.type == entity_type_t::plant){
+                act_tile = entity_t(entity->type , (entity->energy + 25) , entity->age , (entity->x_pos + x_act) , (entity->y_pos + y_act));
+            }
         }
-        // END OF CRITICAL SECTION
+        else if(entity->type == entity_type_t::carnivore){
+            entity_t& act_tile = entity_grid.at(entity->x_pos + x_act).at(entity->y_pos + y_act);
+            // Tile to act upon is empty or is it occupied by a plant?
+            // If it is empty -> carnivore makes a move and spends 5 points of energy
+            // If it is occupied by a plant -> carnivore makes a move, spends 5 energy
+            // If it is occupied by a herbivore -> carnivore makes a move, spends 5 energy, eats the herbivore and restores 20 energy units
+            if( (act_tile.type == entity_type_t::empty) || (act_tile.type == entity_type_t::plant) ){
+                act_tile = entity_t(entity->type , (entity->energy - 5) , entity->age , (entity->x_pos + x_act) , (entity->y_pos + y_act));
+            }
+            else if(act_tile.type == entity_type_t::herbivore){
+                act_tile = entity_t(entity->type , (entity->energy + 15) , entity->age , (entity->x_pos + x_act) , (entity->y_pos + y_act));
+            }
+        }
 
+        entity_grid.at(entity->x_pos).at(entity->y_pos) = entity_t(entity_type_t::empty , 0 , 0 , entity->x_pos , entity->y_pos);
+
+        // END OF CRITICAL SECTION
+        // POSITION HAS CHANGED
         return &entity_grid.at(entity->x_pos + x_act).at(entity->y_pos + y_act);
 
     }
 
     // POSITION HASN'T CHANGED
+    // END OF CRITICAL SECTION
     return &entity_grid.at(entity->x_pos).at(entity->y_pos);
 
 }
@@ -355,31 +405,50 @@ int eat(entity_t* entity){
 }
 
 // Function action(entity_t& , int x_pos , int y_pos)
-int action(entity_t* entity , MyBarrier& my_barrier){
+// OBS : starting_type is used as a variable to identify if an entity was killed while trying to do something
+// If entity->type != starting_type (type of entity when the thread was created) -> entity was killed and another thread now takes care of
+// the entity pointed by entity (*entity) -> so, the thread needs to go straight to the barrier
+int action(entity_t* entity , MyBarrier& my_barrier , const entity_type_t starting_type){
 
     printf("THREAD ENTITY %d IS EXECUTING\n" , entity->type);
 
     // Plant Actions
     if(entity->type == entity_type_t::plant){
         // Reproduction (if not dead)
-        if( die(entity) ){
+        if( die(entity , starting_type) ){
             printf("Plant is growing\n");
-            grow(entity->x_pos , entity->y_pos);
-            ++entity->age;
+            // If grow() returns -1, it means the plant died before growing, therefore, this thread needs to go straight to the barrier
+            if(grow(entity , entity->x_pos , entity->y_pos) != -1){
+                ++entity->age;
+            }
         }
     }
 
     // Herbivore Actions
     if(entity->type == entity_type_t::herbivore){
-        if(die(entity)){
+        if(die(entity , starting_type)){
             // Entity moves to a new position
             // The address of the entity in the new position is returned
-            entity_t* new_pos = move(entity);
+            entity_t* new_pos = move(entity , starting_type);
 
-            // If no movement was made and we need to operate through the Entity reference
-            // Otherwise, we need to operate through the returned address
-            // Algoritmo bem podre, mas vai ter que servir MESMO
-            ++(new_pos->age);
+            // If entity was killed by another while trying to move -> returns nullptr and thread goes straight to barrier
+            if(new_pos != nullptr){
+                ++(new_pos->age);
+            }
+        }
+    }
+
+    // Carnivore Actions
+    if(entity->type == entity_type_t::carnivore){
+        if(die(entity , starting_type)){
+            // Entity moves to a new position
+            // The address of the entity in the new position is returned
+            entity_t* new_pos = move(entity , starting_type);
+
+            // If entity was killed by another while trying to move -> returns nullptr and thread goes straight to barrier
+            if(new_pos != nullptr){
+                ++(new_pos->age);
+            }
         }
     }
 
@@ -511,7 +580,7 @@ int main()
             for(int y = 0 ; y < (int)NUM_ROWS ; ++y){
                 if(entity_grid.at(x).at(y).type != entity_type_t::empty){
                     //thread_list.push_back(std::thread(action , std::ref(entity_grid[x][y]) , x , y , std::ref(my_barrier))) ;
-                    std::thread th(action , &entity_grid[x][y] , std::ref(my_barrier));
+                    std::thread th(action , &entity_grid[x][y] , std::ref(my_barrier) , entity_grid[x][y].type);
                     th.detach();
                 }
             }
