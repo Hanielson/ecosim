@@ -195,7 +195,7 @@ int grow(entity_t* entity , int x_pos , int y_pos){
 
 }
 
-// Function that checks if entity needs to die
+// Function that checks if entity needs to die (achieved maximum age possible or energy is 0)
 // If it does, the entity is removed from the grid and the function returns 0
 // Otherwise, the function does nothing and returns 1
 // If entity was killed by another, while die() was waiting to run, returns 0 as well
@@ -211,8 +211,8 @@ int die(entity_t* entity , entity_type_t starting_type){
     }
 
     if( ( (entity->type == entity_type_t::plant    ) && (entity->age >= PLANT_MAXIMUM_AGE    ) ) 
-      ||( (entity->type == entity_type_t::herbivore) && (entity->age >= HERBIVORE_MAXIMUM_AGE) )
-      ||( (entity->type == entity_type_t::carnivore) && (entity->age >= CARNIVORE_MAXIMUM_AGE) ) ){
+      ||( (entity->type == entity_type_t::herbivore) && ( (entity->age >= HERBIVORE_MAXIMUM_AGE) || (entity->energy == 0) ) )
+      ||( (entity->type == entity_type_t::carnivore) && ( (entity->age >= CARNIVORE_MAXIMUM_AGE) || (entity->energy == 0) ) ) ){
 
         entity_grid.at(entity->x_pos).at(entity->y_pos) = entity_t(entity_type_t::empty , 0 , 0 , entity->x_pos , entity->y_pos);
         // END OF CRITICAL SECTION
