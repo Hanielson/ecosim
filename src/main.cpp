@@ -170,9 +170,9 @@ int grow(int x_pos , int y_pos , std::default_random_engine generator){
 // Otherwise, the function does nothing and returns 1
 int die(entity_t& entity , int x_pos , int y_pos){
     // Checks Entity type and apply death rules according to each one
-    if( ( (entity.type == entity_type_t::plant    ) && (entity.age > PLANT_MAXIMUM_AGE    ) ) 
-      ||( (entity.type == entity_type_t::herbivore) && (entity.age > HERBIVORE_MAXIMUM_AGE) )
-      ||( (entity.type == entity_type_t::carnivore) && (entity.age > CARNIVORE_MAXIMUM_AGE) ) ){
+    if( ( (entity.type == entity_type_t::plant    ) && (entity.age >= PLANT_MAXIMUM_AGE    ) ) 
+      ||( (entity.type == entity_type_t::herbivore) && (entity.age >= HERBIVORE_MAXIMUM_AGE) )
+      ||( (entity.type == entity_type_t::carnivore) && (entity.age >= CARNIVORE_MAXIMUM_AGE) ) ){
         // CRITICAL SECTION
         std::unique_lock<std::mutex> ul(end_task);
         entity_grid.at(x_pos).at(y_pos) = entity_t(entity_type_t::empty , 0 , 0);
@@ -194,8 +194,8 @@ entity_t* move(entity_t& entity , int x_pos , int y_pos){
     std::uniform_int_distribution percentage(1 , 100);
 
     // Entity Movements
-    if( ( (entity.type == entity_type_t::herbivore) && (percentage(generator) <= 70) )
-      ||( (entity.type == entity_type_t::carnivore) && (percentage(generator) <= 50) ) ){
+    if( ( (entity.type == entity_type_t::herbivore) && (percentage(generator) <= (int)(HERBIVORE_MOVE_PROBABILITY * 100)) && (entity.energy >= 5))
+      ||( (entity.type == entity_type_t::carnivore) && (percentage(generator) <= (int)(CARNIVORE_MOVE_PROBABILITY * 100)) && (entity.energy >= 5)) ){
         
         // Is there ate least ONE valid position?
         bool valid_count = false;
@@ -274,7 +274,7 @@ int action(entity_t& entity , int x_pos , int y_pos , MyBarrier& my_barrier){
     // Plant Actions
     if(entity.type == entity_type_t::plant){
         // Reproduction (if not dead)
-        if( die(entity , x_pos , y_pos) && (percentage(generator) <= 20) ){
+        if( die(entity , x_pos , y_pos) && (percentage(generator) <= (int)(PLANT_REPRODUCTION_PROBABILITY * 100)) ){
             printf("Plant is growing\n");
             grow(x_pos , y_pos , generator);
             ++entity.age;
