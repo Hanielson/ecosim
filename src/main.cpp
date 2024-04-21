@@ -1,3 +1,9 @@
+/*************************************************
+ *                                               *
+ *   EXERCÍCIO COMPUTACIONAL III - ECOSIM        *
+ *   HANIEL NUNES SCHIRMER CARDOSO - 2020068960  *
+ *                                               *
+ *************************************************/
 #define CROW_MAIN
 #define CROW_STATIC_DIR "../public"
 
@@ -220,7 +226,7 @@ int die(entity_t* entity , entity_type_t starting_type){
 
 // Function that updates the position of the Herbivores and Carnivores, according to each own rules
 // Returns pointer to entity in new position
-// OBS : NEED TO IMPLEMENT CARNIVORE MOVEMENT
+// If entity was killed before it could move, then the function returns a nullptr
 entity_t* move(entity_t* entity , entity_type_t starting_type){
 
     // Instantiation of Random Number Generator Engine
@@ -330,20 +336,28 @@ entity_t* move(entity_t* entity , entity_type_t starting_type){
 
 // Function that implements the eating action for the Herbivores and Carnivores, according to each own rules
 // Had to change entity reference to entity pointer -> due to the fact that the function needs to work with recently-moved entities
-int eat(entity_t* entity){
+// If entity ate something, returns 1 
+// If it hadn't anything to eat or the probability wasnt attended, returns 0 
+// If it died before being able to eat, returns -1
+int eat(entity_t* entity , entity_type_t starting_type){
 
     // Instantiation of Random Number Generator Engine
     std::random_device rd;
     std::default_random_engine generator(rd());
     std::uniform_int_distribution percentage(1 , 100);
 
-    // Checks Entity Type for Eating Rules Applications
-    if( (entity->type != entity_type_t::herbivore) && (entity->type != entity_type_t::carnivore) ){
-        // ARE YOU NOT A HERBIVORE NOR A CARNIVORE?? WTF WHY ARE YOU HERE??? GTFOOOO
+    // CRITICAL SECTION
+    // No one can affect the grid while entities are trying to eat
+    std::unique_lock<std::mutex> mut(end_task);
+
+    // Entity was killed before it could begin to eat -> function returns -1
+    if(entity->type != starting_type){
         return -1;
     }
-    else{
-        
+    
+    if( ( (entity->type == entity_type_t::herbivore) && (percentage(generator) <= (int)(HERBIVORE_EAT_PROBABILITY * 100)) )
+      ||( (entity->type == entity_type_t::carnivore) && (percentage(generator) <= (int)(CARNIVORE_EAT_PROBABILITY * 100)) ) ){
+
         // COPIEI A SEÇÃO DO CÓDIGO DENOVO NAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAO
         // Mas vai ter que ser por pressa mesmo... trágico -> pelo menos funciona né kkkk
         // Is there ate least ONE valid position?
@@ -357,23 +371,19 @@ int eat(entity_t* entity){
         // We can index each square of the grid based on (x_pos , y_pos) + (-1/0/1 , -1/0/1)
         std::uniform_int_distribution rand_cell(-1 , 1);
 
-        // CRITICAL SECTION
-        // No one can affect the grid while entities are trying to eat
-        std::unique_lock<std::mutex> mut(end_task);
-
         // Updates array with valid values
         // Essa parte aqui tá PODRÍFERA, mas vai ter que servir
         for(int x_mod = -1 ; x_mod <= 1 ; ++x_mod){
             for(int y_mod = -1 ; y_mod <= 1 ; ++y_mod){
                 // Checks if Position is outside the grid
                 if( ( (entity->x_pos + x_mod) < 0 ) || ( (entity->x_pos + x_mod) >= (int)NUM_ROWS ) 
-                  ||( (entity->y_pos + y_mod) < 0 ) || ( (entity->y_pos + y_mod) >= (int)NUM_ROWS )){
+                    ||( (entity->y_pos + y_mod) < 0 ) || ( (entity->y_pos + y_mod) >= (int)NUM_ROWS )){
                     continue;
                 }
 
                 entity_type_t adjacent_type = entity_grid.at(entity->x_pos + x_mod).at(entity->y_pos + y_mod).type;
                 if( ( (entity->type == entity_type_t::herbivore) && (adjacent_type == entity_type_t::plant) ) 
-                  ||( (entity->type == entity_type_t::carnivore) && (adjacent_type == entity_type_t::herbivore) ) ){
+                    ||( (entity->type == entity_type_t::carnivore) && (adjacent_type == entity_type_t::herbivore) ) ){
                     pos[x_mod + 1][y_mod + 1] = true;
                     valid_count = true;
                 };
@@ -383,7 +393,7 @@ int eat(entity_t* entity){
         // If there is not a single valid position, the function returns
         if(!valid_count){
             // END OF CRITICAL SECTION
-            return -1;
+            return 0;
         }
 
         // Position to be acted upon
@@ -395,12 +405,21 @@ int eat(entity_t* entity){
             printf("x_act : %d /// y_act : %d\n" , x_act , y_act);
         }while(pos[x_act + 1][y_act + 1] == false);
 
-        // ACTIONS
+        // Herbivore and Carnivore actions
+        if(entity->type == entity_type_t::herbivore){
+            entity_grid.at(entity->x_pos + x_act).at(entity->y_pos + y_act) = entity_t(entity_type_t::empty , 0 , 0 , (entity->x_pos + x_act) , (entity->y_pos + y_act));
+            entity_grid.at(entity->x_pos).at(entity->y_pos) = entity_t(entity->type , (entity->energy + 30) , entity->age , entity->x_pos , entity->y_pos);
+        }
+        else if(entity->type == entity_type_t::carnivore){
+            entity_grid.at(entity->x_pos + x_act).at(entity->y_pos + y_act) = entity_t(entity_type_t::empty , 0 , 0 , (entity->x_pos + x_act) , (entity->y_pos + y_act));
+            entity_grid.at(entity->x_pos).at(entity->y_pos) = entity_t(entity->type , (entity->energy + 20) , entity->age , entity->x_pos , entity->y_pos);
+        }
         // END OF CRITICAL SECTION
-
-        return 0;
-
+        return 1;
+    
     }
+    
+    return 0;
 
 }
 
@@ -425,29 +444,18 @@ int action(entity_t* entity , MyBarrier& my_barrier , const entity_type_t starti
     }
 
     // Herbivore Actions
-    if(entity->type == entity_type_t::herbivore){
+    if( (entity->type == entity_type_t::herbivore) || (entity->type == entity_type_t::carnivore) ){
         if(die(entity , starting_type)){
             // Entity moves to a new position
             // The address of the entity in the new position is returned
-            entity_t* new_pos = move(entity , starting_type);
+            entity = move(entity , starting_type);
 
             // If entity was killed by another while trying to move -> returns nullptr and thread goes straight to barrier
-            if(new_pos != nullptr){
-                ++(new_pos->age);
-            }
-        }
-    }
-
-    // Carnivore Actions
-    if(entity->type == entity_type_t::carnivore){
-        if(die(entity , starting_type)){
-            // Entity moves to a new position
-            // The address of the entity in the new position is returned
-            entity_t* new_pos = move(entity , starting_type);
-
-            // If entity was killed by another while trying to move -> returns nullptr and thread goes straight to barrier
-            if(new_pos != nullptr){
-                ++(new_pos->age);
+            if(entity != nullptr){
+                // If entity was killed before it could eat anything -> returns -1 and thread goes straight into the barrier
+                if(eat(entity , starting_type) != -1){
+                    ++(entity->age);
+                }
             }
         }
     }
