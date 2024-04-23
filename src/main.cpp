@@ -528,6 +528,12 @@ int reproduce(entity_t* entity , entity_type_t starting_type){
 // the entity pointed by entity (*entity) -> so, the thread needs to go straight to the barrier
 int action(entity_t* entity , MyBarrier& my_barrier , const entity_type_t starting_type){
 
+    // Instantiation of Random Number Generator Engine
+    std::random_device rd;
+    std::default_random_engine generator(rd());
+    std::uniform_int_distribution percentage(1,3);
+
+
     printf("THREAD ENTITY %d IS EXECUTING\n" , entity->type);
 
     // Plant Actions
@@ -545,16 +551,33 @@ int action(entity_t* entity , MyBarrier& my_barrier , const entity_type_t starti
     // Herbivore Actions
     if( (entity->type == entity_type_t::herbivore) || (entity->type == entity_type_t::carnivore) ){
         if(die(entity , starting_type)){
+
+            switch((int)percentage(generator)){
+                case 1:{
+                    entity = move(entity , starting_type);
+                    break;
+                }
+
+                case 2:{
+                    eat(entity , starting_type);
+                    break;
+                }
+
+                case 3:{
+                    reproduce(entity , starting_type);
+                    break;
+                }
+            }
             // Entity moves to a new position
             // The address of the entity in the new position is returned
-            entity = move(entity , starting_type);
+            //entity = move(entity , starting_type);
 
             // If entity was killed by another while trying to move -> returns nullptr and thread goes straight to barrier
             // If entity was killed before it could eat anything -> returns -1 and thread goes straight into the barrier
             // If entity was killed before it could reproduce -> reuturns -1 and thread goes straight into the barrier
-            if( (entity != nullptr) && (eat(entity , starting_type) != -1) && (reproduce(entity , starting_type) != -1)){
+            /*if( (entity != nullptr) && (eat(entity , starting_type) != -1) && (reproduce(entity , starting_type) != -1)){
                 ++(entity->age);
-            }
+            }*/
         }
     }
 
