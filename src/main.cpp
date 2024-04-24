@@ -568,6 +568,9 @@ int action(entity_t* entity , MyBarrier& my_barrier , const entity_type_t starti
                     break;
                 }
             }
+
+            ++(entity->age);
+
             // Entity moves to a new position
             // The address of the entity in the new position is returned
             //entity = move(entity , starting_type);
